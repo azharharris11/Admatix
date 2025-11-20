@@ -1,0 +1,5 @@
+{
+  "name": "AdMatrix Engine",
+  "description": "A tactical command center for advertisers to generate high-volume, strategically diverse Meta ad creatives using Gemini AI.",
+  "requestFramePermissions": []
+}
