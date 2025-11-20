@@ -1,4 +1,4 @@
-import { GoogleGenAI, Schema, Type } from "@google/genai";
+import { GoogleGenAI, Schema, Type, Modality } from "@google/genai";
 import { AdFramework } from "../types";
 
 const getAiClient = () => {
@@ -46,13 +46,92 @@ export const generatePersonas = async (productName: string): Promise<{ name: str
     return JSON.parse(text);
   } catch (error) {
     console.error("Gemini Persona Generation Error:", error);
-    // Fallback for demo if API fails
     return [
       { name: "The Skeptic", hook: "Does it actually work?" },
       { name: "The Value Hunter", hook: "Best bang for buck." },
       { name: "The Trend Follower", hook: "Everyone is using it." }
     ];
   }
+};
+
+export const generateAwarenessLevels = async (persona: string, product: string): Promise<{ level: string; description: string }[]> => {
+  try {
+    const ai = getAiClient();
+    const prompt = `
+      Product: ${product}
+      Target Persona: ${persona}
+      
+      Define 2 distinct 'Awareness Levels' for this persona related to the product.
+      (e.g., "Unaware: Doesn't know why face is oily", "Solution Aware: Looking for best serum").
+      Return JSON: [{ "level": "Name", "description": "Context" }]
+    `;
+
+    const responseSchema: Schema = {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          level: { type: Type.STRING },
+          description: { type: Type.STRING },
+        },
+        required: ["level", "description"],
+      },
+    };
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      },
+    });
+
+    const text = response.text;
+    if (!text) return [];
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Gemini Awareness Error:", error);
+    return [
+      { level: "Problem Aware", description: "Knows the pain, seeks relief." },
+      { level: "Solution Aware", description: "Comparing options." }
+    ];
+  }
+};
+
+export const generateHooks = async (persona: string, awareness: string, product: string): Promise<string[]> => {
+    try {
+        const ai = getAiClient();
+        const prompt = `
+          Product: ${product}
+          Persona: ${persona}
+          Awareness Level: ${awareness}
+          
+          Write 3 distinct, punchy marketing "Hooks" (Angles) for this specific context.
+          Return JSON array of strings.
+        `;
+
+         const responseSchema: Schema = {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+        };
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: responseSchema,
+            },
+        });
+
+        const text = response.text;
+        if (!text) return [];
+        return JSON.parse(text);
+    } catch (error) {
+        console.error("Gemini Hook Error:", error);
+        return ["Stop covering up.", "The secret ingredient.", "Why it works."];
+    }
 };
 
 export const rewriteCopy = async (currentText: string, style: string): Promise<string> => {
@@ -72,29 +151,39 @@ export const rewriteCopy = async (currentText: string, style: string): Promise<s
   }
 };
 
-export const generateAdConcepts = async (framework: AdFramework, persona: string, product: string): Promise<{ headline: string; bodyText: string; cta: string; formula: any; visualPrompt: string }> => {
+export const generateAdConcepts = async (
+    framework: AdFramework, 
+    persona: string, 
+    product: string,
+    hook?: string, 
+    awareness?: string
+): Promise<{ headline: string; bodyText: string; cta: string; formula: any; visualPrompt: string }> => {
     try {
         const ai = getAiClient();
         
         const prompt = `
             Act as a world-class Direct Response copywriter specializing in "Ugly Ads" for Meta.
             
-            Product: ${product}
-            Target Persona: ${persona}
-            Selected Format: ${framework}
+            CRITICAL CONTEXT:
+            - Product: ${product}
+            - Target Persona: ${persona}
+            - Mental Awareness State: ${awareness || 'General'}
+            - SPECIFIC HOOK TO USE: "${hook || 'General Appeal'}" (You MUST base the copy on this hook).
+            - Selected Format: ${framework}
             
             You must apply the "Ugly Ad Formula":
             1. Keyword (What they search for)
-            2. Emotion (Struggle/Pain)
+            2. Emotion (Struggle/Pain related to the HOOK)
             3. Qualifier (Who is this for?)
-            4. Long Text (Slippery slope pattern interrupt)
-            5. Outcome (The result)
+            4. Long Text (Slippery slope pattern interrupt - Start with a shock or question)
+            5. Outcome (The result promised by the product)
 
-            Format Specific Instructions:
-            - If "Big Font": Headline must be short, shocking, identifying a problem.
-            - If "Notes App": Copy should look like a personal reminder or drafted text.
-            - If "Gmail UX": Headline is the "Subject Line", Body is the "Email Preview".
-            - If "Ugly Visual": Visual prompt must describe a messy, amateur, authentic scene (e.g., messy bathroom counter, dimly lit room).
+            Format Specific Instructions for Visual Prompt (image generation description):
+            - If "Ugly Visual": Describe a messy, amateur, authentically bad photo background (e.g., "dirty bathroom sink with clutter", "dimly lit bedroom desk", "flash photography of skin texture"). DO NOT include the product in the description, just the environment.
+            - If "Big Font": Describe a solid, harsh background color (e.g., "solid neon yellow hex code background", "concrete wall texture").
+            - If "Notes App": Describe a "crumpled yellow paper texture" or "clean white digital note background".
+            - If "Billboard": Describe "a view of a highway billboard against a blue sky, looking up from the ground".
+            - If "Gmail UX": Describe "a clean white digital interface background".
             
             Return JSON structure containing the copy and the strategy breakdown.
         `;
@@ -115,7 +204,7 @@ export const generateAdConcepts = async (framework: AdFramework, persona: string
                     },
                     required: ["keyword", "emotion", "qualifier", "outcome"]
                 },
-                visualPrompt: { type: Type.STRING, description: "Description of the background image for generation" }
+                visualPrompt: { type: Type.STRING, description: "Detailed prompt for an image generation model to create the background. MAX 40 words." }
             },
             required: ["headline", "bodyText", "cta", "formula", "visualPrompt"]
         };
@@ -149,3 +238,33 @@ export const generateAdConcepts = async (framework: AdFramework, persona: string
         };
     }
 }
+
+export const generateAdImage = async (visualPrompt: string): Promise<string | null> => {
+    try {
+        const ai = getAiClient();
+        
+        // Add strict styling cues for the image model
+        const improvedPrompt = `${visualPrompt}. Amateur photography, realistic lighting, high quality, 4k.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [{ text: improvedPrompt }],
+            },
+            config: {
+                responseModalities: [Modality.IMAGE],
+            },
+        });
+
+        const candidates = response.candidates;
+        if (candidates && candidates[0]?.content?.parts?.[0]?.inlineData?.data) {
+             const base64Image = candidates[0].content.parts[0].inlineData.data;
+             return `data:image/jpeg;base64,${base64Image}`;
+        }
+        return null;
+
+    } catch (error) {
+        console.error("Gemini Image Generation Error:", error);
+        return null;
+    }
+};

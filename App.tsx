@@ -17,7 +17,9 @@ import {
   Type,
   Image as ImageIcon,
   FileText,
-  Brain
+  Brain,
+  Settings,
+  Upload
 } from 'lucide-react';
 import { 
   Phase, 
@@ -27,11 +29,11 @@ import {
   AdVariant, 
   ProjectState 
 } from './types';
-import { generatePersonas, rewriteCopy, generateAdConcepts } from './services/geminiService';
+import { generatePersonas, rewriteCopy, generateAdConcepts, generateAwarenessLevels, generateHooks, generateAdImage } from './services/geminiService';
 
 // --- Constants & Mock Data ---
-const MOCK_PRODUCT_IMG = "https://picsum.photos/id/225/400/600"; // Teapot as generic product
-const MOCK_PRODUCT_NAME = "Lumina Clear Serum";
+const MOCK_PRODUCT_IMG = "https://picsum.photos/id/225/400/600"; 
+const MOCK_PRODUCT_NAME = "New Project";
 
 const FRAMEWORKS = [
   AdFramework.UGLY_VISUAL,
@@ -53,11 +55,11 @@ const Button: React.FC<{
 }> = ({ onClick, children, variant = 'primary', className = '', disabled = false, icon }) => {
   const baseStyle = "px-4 py-2 rounded-sm font-mono text-sm flex items-center gap-2 transition-all uppercase tracking-wider font-semibold";
   const variants = {
-    primary: "bg-[#00FF94] text-black hover:bg-[#00cc76] shadow-[0_0_10px_rgba(0,255,148,0.3)] disabled:opacity-50",
-    secondary: "bg-[#2D9CDB] text-white hover:bg-[#2280b6] disabled:opacity-50",
-    outline: "border border-[#333] text-gray-300 hover:border-[#00FF94] hover:text-[#00FF94] bg-transparent",
+    primary: "bg-[#00FF94] text-black hover:bg-[#00cc76] shadow-[0_0_10px_rgba(0,255,148,0.3)] disabled:opacity-50 disabled:cursor-not-allowed",
+    secondary: "bg-[#2D9CDB] text-white hover:bg-[#2280b6] disabled:opacity-50 disabled:cursor-not-allowed",
+    outline: "border border-[#333] text-gray-300 hover:border-[#00FF94] hover:text-[#00FF94] bg-transparent disabled:opacity-50",
     danger: "bg-red-900/30 text-red-500 border border-red-900 hover:bg-red-900/50",
-    ghost: "bg-transparent text-gray-400 hover:text-white"
+    ghost: "bg-transparent text-gray-400 hover:text-white disabled:opacity-50"
   };
 
   return (
@@ -86,71 +88,201 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   );
 };
 
+const SetupModal: React.FC<{ onSave: (name: string, img: string) => void }> = ({ onSave }) => {
+    const [name, setName] = useState('');
+    const [imgUrl, setImgUrl] = useState(MOCK_PRODUCT_IMG);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImgUrl(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center backdrop-blur-sm">
+            <div className="bg-[#1a1a1a] border border-gray-700 p-8 rounded-lg w-[500px] shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#2D9CDB] to-[#00FF94]"></div>
+                
+                <h2 className="text-2xl font-bold font-mono text-white mb-1">INITIALIZE MISSION</h2>
+                <p className="text-gray-500 text-sm mb-6">Configure your tactical target.</p>
+
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-xs text-[#00FF94] font-bold mb-2 uppercase tracking-wider">Product Name / Code</label>
+                        <input 
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full bg-black border border-gray-700 p-3 rounded text-white focus:border-[#00FF94] outline-none font-mono"
+                            placeholder="e.g., Bio-Retinol Serum X"
+                        />
+                    </div>
+
+                    <div>
+                         <label className="block text-xs text-[#00FF94] font-bold mb-2 uppercase tracking-wider">Target Asset (Product Image)</label>
+                         <div className="flex items-center gap-4">
+                             <div className="w-20 h-20 bg-black border border-gray-700 rounded overflow-hidden flex items-center justify-center">
+                                 <img src={imgUrl} alt="Preview" className="w-full h-full object-contain" />
+                             </div>
+                             <div className="flex-1">
+                                 <input 
+                                     type="file" 
+                                     ref={fileInputRef}
+                                     className="hidden"
+                                     accept="image/*"
+                                     onChange={handleFileChange}
+                                 />
+                                 <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full justify-center text-xs">
+                                     <Upload size={14} /> UPLOAD IMAGE
+                                 </Button>
+                                 <p className="text-[10px] text-gray-500 mt-2">Recommended: Transparent PNG or solid background.</p>
+                             </div>
+                         </div>
+                    </div>
+
+                    <Button 
+                        disabled={!name} 
+                        onClick={() => onSave(name, imgUrl)} 
+                        className="w-full justify-center py-4 mt-4"
+                    >
+                        INITIATE ENGINE
+                    </Button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // --- Main App Component ---
 
 export default function App() {
   // --- State ---
   const [phase, setPhase] = useState<Phase>(Phase.STRATEGY);
+  const [showSetup, setShowSetup] = useState(true);
   
   const [project, setProject] = useState<ProjectState>({
     productName: MOCK_PRODUCT_NAME,
     productImage: MOCK_PRODUCT_IMG,
-    nodes: [
-      { id: 'root', type: NodeType.ROOT, label: MOCK_PRODUCT_NAME, x: 400, y: 300 }
-    ],
+    nodes: [], // Start empty
     variants: [],
     activeVariantId: null
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // --- Strategy Logic (Mindmap) ---
-  const addPersonas = async () => {
-    setIsGenerating(true);
-    try {
-      const personas = await generatePersonas(project.productName);
-      
-      const newNodes: StrategyNode[] = [...project.nodes];
-      const root = newNodes.find(n => n.type === NodeType.ROOT);
-      
-      if (root) {
-        personas.forEach((p, i) => {
-          const id = `persona-${i}`;
-          // Simple radial layout calc
-          const angle = (i / personas.length) * 2 * Math.PI;
-          const radius = 250;
-          
-          newNodes.push({
-            id,
-            type: NodeType.PERSONA,
-            label: p.name,
-            parentId: 'root',
-            x: (root.x || 400) + Math.cos(angle) * radius,
-            y: (root.y || 300) + Math.sin(angle) * radius,
-            data: { hook: p.hook }
+  const handleSetupSave = (name: string, img: string) => {
+      setProject(prev => ({
+          ...prev,
+          productName: name,
+          productImage: img,
+          nodes: [{ id: 'root', type: NodeType.ROOT, label: name, x: 400, y: 300 }]
+      }));
+      setShowSetup(false);
+  }
+
+  // --- Strategy Logic (Deep Tree) ---
+  
+  const handleNodeClick = async (node: StrategyNode) => {
+    if (isGenerating) return;
+    
+    // Check if children already exist to prevent duplicates
+    const hasChildren = project.nodes.some(n => n.parentId === node.id);
+    if (hasChildren) return;
+
+    // 1. ROOT -> PERSONA
+    if (node.type === NodeType.ROOT) {
+        setIsGenerating(true);
+        try {
+          const personas = await generatePersonas(project.productName);
+          const newNodes: StrategyNode[] = [...project.nodes];
+          personas.forEach((p, i) => {
+            const angle = (i / personas.length) * 2 * Math.PI;
+            const radius = 250;
+            newNodes.push({
+              id: `persona-${i}-${Date.now()}`,
+              type: NodeType.PERSONA,
+              label: p.name,
+              parentId: node.id,
+              x: (node.x || 400) + Math.cos(angle) * radius,
+              y: (node.y || 300) + Math.sin(angle) * radius,
+              data: { hook: p.hook }
+            });
           });
-        });
-      }
-      setProject(prev => ({ ...prev, nodes: newNodes }));
-    } finally {
-      setIsGenerating(false);
+          setProject(prev => ({ ...prev, nodes: newNodes }));
+        } finally {
+          setIsGenerating(false);
+        }
+    }
+    // 2. PERSONA -> AWARENESS
+    else if (node.type === NodeType.PERSONA) {
+        setIsGenerating(true);
+        try {
+            const levels = await generateAwarenessLevels(node.label, project.productName);
+            const newNodes = [...project.nodes];
+            levels.forEach((lvl, i) => {
+                const offsetX = 200; 
+                const offsetY = (i - 0.5) * 150; 
+                newNodes.push({
+                    id: `${node.id}-aw-${i}`,
+                    type: NodeType.AWARENESS,
+                    label: lvl.level,
+                    parentId: node.id,
+                    x: (node.x || 0) + offsetX,
+                    y: (node.y || 0) + offsetY,
+                    data: { description: lvl.description }
+                });
+            });
+            setProject(p => ({ ...p, nodes: newNodes }));
+        } finally {
+            setIsGenerating(false);
+        }
+    }
+    // 3. AWARENESS -> HOOK
+    else if (node.type === NodeType.AWARENESS) {
+        setIsGenerating(true);
+        try {
+            const parentPersona = project.nodes.find(n => n.id === node.parentId);
+            const hooks = await generateHooks(parentPersona?.label || "", node.label, project.productName);
+            const newNodes = [...project.nodes];
+            hooks.forEach((hook, i) => {
+                const offsetX = 200;
+                const offsetY = (i - 1) * 100;
+                newNodes.push({
+                    id: `${node.id}-hook-${i}`,
+                    type: NodeType.HOOK,
+                    label: hook,
+                    parentId: node.id,
+                    x: (node.x || 0) + offsetX,
+                    y: (node.y || 0) + offsetY
+                });
+            });
+            setProject(p => ({ ...p, nodes: newNodes }));
+        } finally {
+            setIsGenerating(false);
+        }
     }
   };
 
   // --- Matrix Logic ---
   const initializeMatrix = () => {
-    // Create empty slots for every Persona x Framework combination
-    const personas = project.nodes.filter(n => n.type === NodeType.PERSONA);
+    // Use Hook nodes if available, otherwise fallback to Persona nodes (for lazy users)
+    const hookNodes = project.nodes.filter(n => n.type === NodeType.HOOK);
+    const targetNodes = hookNodes.length > 0 ? hookNodes : project.nodes.filter(n => n.type === NodeType.PERSONA);
+
     const newVariants: AdVariant[] = [];
 
-    personas.forEach(persona => {
+    targetNodes.forEach(node => {
       FRAMEWORKS.forEach(fw => {
-        // Check if already exists
-        const exists = project.variants.find(v => v.personaId === persona.id && v.framework === fw);
+        const exists = project.variants.find(v => v.personaId === node.id && v.framework === fw);
         if (!exists) {
           newVariants.push({
-            id: `${persona.id}-${fw.replace(/\s/g, '')}`,
-            personaId: persona.id,
+            id: `${node.id}-${fw.replace(/\s/g, '')}`,
+            personaId: node.id, // Stores the Source Node ID (can be Hook or Persona)
             framework: fw,
             status: 'EMPTY',
             headline: '',
@@ -158,7 +290,7 @@ export default function App() {
             cta: 'Learn More',
             formula: { keyword: '', emotion: '', qualifier: '', outcome: '' },
             entityIdScore: 0,
-            isRawMode: true, // Default to Raw Mode for Ugly Ads
+            isRawMode: true,
             style: 'Professional'
           });
         }
@@ -176,8 +308,25 @@ export default function App() {
     const variant = project.variants.find(v => v.id === variantId);
     if (!variant) return;
     
-    const personaNode = project.nodes.find(n => n.id === variant.personaId);
-    const personaName = personaNode?.label || "General";
+    // TRAVERSE UP TREE to get full context
+    const node = project.nodes.find(n => n.id === variant.personaId);
+    let personaName = "General";
+    let awareness = undefined;
+    let hook = undefined;
+
+    if (node) {
+        if (node.type === NodeType.HOOK) {
+            hook = node.label;
+            const awarenessNode = project.nodes.find(n => n.id === node.parentId);
+            if (awarenessNode) {
+                awareness = awarenessNode.label;
+                const personaNode = project.nodes.find(n => n.id === awarenessNode.parentId);
+                if (personaNode) personaName = personaNode.label;
+            }
+        } else if (node.type === NodeType.PERSONA) {
+            personaName = node.label;
+        }
+    }
 
     // Update status to generating
     setProject(prev => ({
@@ -185,25 +334,37 @@ export default function App() {
       variants: prev.variants.map(v => v.id === variantId ? { ...v, status: 'GENERATING' } : v)
     }));
 
-    const concept = await generateAdConcepts(variant.framework, personaName, project.productName);
+    try {
+      // 1. Generate Text & Concept
+      const concept = await generateAdConcepts(variant.framework, personaName, project.productName, hook, awareness);
+      
+      // 2. Generate Visual (Image) using Gemini 2.5 Flash Image
+      // Only generate image if framework needs it (not pure text ones like Gmail/BigFont, though BigFont can use textures)
+      let generatedImageUrl = undefined;
+      if (variant.framework === AdFramework.UGLY_VISUAL || variant.framework === AdFramework.STANDARD || variant.framework === AdFramework.BILLBOARD) {
+         generatedImageUrl = await generateAdImage(concept.visualPrompt);
+      }
 
-    // Simulate image generation time and result
-    const randomSeed = Math.floor(Math.random() * 1000);
-    const mockImageUrl = `https://picsum.photos/seed/${randomSeed}/300/300`; 
-
-    setProject(prev => ({
-      ...prev,
-      variants: prev.variants.map(v => v.id === variantId ? {
-        ...v,
-        status: 'DONE',
-        thumbnailUrl: mockImageUrl,
-        headline: concept.headline,
-        bodyText: concept.bodyText,
-        formula: concept.formula,
-        cta: concept.cta,
-        entityIdScore: Math.floor(Math.random() * 20) + 80 // Mock score
-      } : v)
-    }));
+      setProject(prev => ({
+        ...prev,
+        variants: prev.variants.map(v => v.id === variantId ? {
+          ...v,
+          status: 'DONE',
+          thumbnailUrl: generatedImageUrl || prev.variants.find(pv => pv.id === variantId)?.thumbnailUrl, // Fallback
+          headline: concept.headline,
+          bodyText: concept.bodyText,
+          formula: concept.formula,
+          cta: concept.cta,
+          entityIdScore: Math.floor(Math.random() * 20) + 80 
+        } : v)
+      }));
+    } catch (error) {
+        console.error("Generation failed", error);
+        setProject(prev => ({
+            ...prev,
+            variants: prev.variants.map(v => v.id === variantId ? { ...v, status: 'EMPTY' } : v)
+        }));
+    }
   };
 
   const generateAllColumn = async (framework: AdFramework) => {
@@ -245,6 +406,24 @@ export default function App() {
     updateActiveVariant({ headline: newHeadline });
     setIsGenerating(false);
   };
+  
+  const handleRegenerateImageOnly = async () => {
+      const active = project.variants.find(v => v.id === project.activeVariantId);
+      if (!active) return;
+      
+      setIsGenerating(true);
+      
+      // Re-use context logic if possible, or just generate a generic messy background
+      const prompt = active.framework === AdFramework.UGLY_VISUAL 
+        ? "A messy, cluttered authentic background, amateur photography, poor lighting" 
+        : "A professional product background studio lighting";
+        
+      const newImg = await generateAdImage(prompt);
+      if (newImg) {
+          updateActiveVariant({ thumbnailUrl: newImg });
+      }
+      setIsGenerating(false);
+  };
 
   // --- Renderers ---
 
@@ -274,43 +453,57 @@ export default function App() {
         </svg>
 
         {/* Render Nodes */}
-        {project.nodes.map(node => (
-          <div 
-            key={node.id}
-            style={{ 
-              left: node.x, 
-              top: node.y,
-              transform: 'translate(-50%, -50%)' 
-            }}
-            className={`absolute p-4 rounded-lg border shadow-xl flex flex-col items-center gap-2 w-48 transition-all cursor-grab active:cursor-grabbing
-              ${node.type === NodeType.ROOT 
-                ? 'bg-[#1a1a1a] border-[#00FF94] z-20' 
-                : 'bg-[#1E1E1E] border-gray-700 hover:border-[#2D9CDB] z-10'}
-            `}
-          >
-            {node.type === NodeType.ROOT && (
-                <div className="w-16 h-16 rounded-full overflow-hidden mb-2 border border-gray-600">
-                    <img src={project.productImage} alt="Product" className="w-full h-full object-cover" />
-                </div>
-            )}
-            <span className={`font-mono text-xs font-bold ${node.type === NodeType.ROOT ? 'text-[#00FF94]' : 'text-gray-400'}`}>
-              {node.type}
-            </span>
-            <span className="text-center font-semibold text-sm">{node.label}</span>
-            
-            {node.type === NodeType.ROOT && project.nodes.length === 1 && (
-              <Button 
-                onClick={addPersonas} 
-                variant="secondary" 
-                className="mt-2 text-[10px] h-8"
-                disabled={isGenerating}
-                icon={isGenerating ? <RefreshCw className="animate-spin"/> : <Zap/>}
+        {project.nodes.map(node => {
+             const hasChildren = project.nodes.some(n => n.parentId === node.id);
+             return (
+              <div 
+                key={node.id}
+                onClick={() => handleNodeClick(node)}
+                style={{ 
+                  left: node.x, 
+                  top: node.y,
+                  transform: 'translate(-50%, -50%)' 
+                }}
+                className={`absolute p-4 rounded-lg border shadow-xl flex flex-col items-center gap-2 transition-all cursor-pointer hover:scale-105
+                  ${node.type === NodeType.ROOT 
+                    ? 'bg-[#1a1a1a] border-[#00FF94] z-40 w-48' 
+                    : node.type === NodeType.PERSONA 
+                      ? 'bg-[#1E1E1E] border-gray-700 hover:border-[#2D9CDB] z-30 w-48'
+                      : node.type === NodeType.AWARENESS
+                        ? 'bg-blue-950/80 border-blue-500/50 hover:border-blue-400 z-20 w-40 backdrop-blur-sm'
+                        : 'bg-purple-950/80 border-purple-500/50 hover:border-purple-400 z-10 w-40 backdrop-blur-sm' // HOOK
+                  }
+                `}
               >
-                {isGenerating ? 'Scanning...' : 'Analyze Personas'}
-              </Button>
-            )}
-          </div>
-        ))}
+                {node.type === NodeType.ROOT && (
+                    <div className="w-16 h-16 rounded-full overflow-hidden mb-2 border border-gray-600 bg-black">
+                        <img src={project.productImage} alt="Product" className="w-full h-full object-contain" />
+                    </div>
+                )}
+                <span className={`font-mono text-[10px] font-bold uppercase opacity-70 ${
+                    node.type === NodeType.ROOT ? 'text-[#00FF94]' : 
+                    node.type === NodeType.AWARENESS ? 'text-blue-300' :
+                    node.type === NodeType.HOOK ? 'text-purple-300' : 'text-gray-400'
+                }`}>
+                  {node.type}
+                </span>
+                <span className="text-center font-semibold text-sm text-gray-200">{node.label}</span>
+                
+                {node.type === NodeType.ROOT && project.nodes.length === 1 && (
+                  <div className="mt-2 text-[10px] text-[#00FF94] animate-pulse flex items-center gap-1">
+                    <Zap size={10} /> CLICK TO START
+                  </div>
+                )}
+
+                {/* Expansion Indicator */}
+                {!hasChildren && node.type !== NodeType.HOOK && (
+                    <div className="absolute -right-3 top-1/2 -translate-y-1/2 bg-[#1a1a1a] rounded-full p-1 border border-gray-700 hover:bg-[#00FF94] hover:text-black transition-colors">
+                        <Plus size={10} />
+                    </div>
+                )}
+              </div>
+            );
+        })}
 
         {project.nodes.length > 1 && (
           <div className="absolute top-4 right-4">
@@ -324,14 +517,15 @@ export default function App() {
   };
 
   const renderMatrix = () => {
-    const personas = project.nodes.filter(n => n.type === NodeType.PERSONA);
+    // Group variants by their source node (which are the "Rows")
+    const uniqueRowIds = Array.from(new Set(project.variants.map(v => v.personaId)));
     
     return (
       <div className="w-full h-full overflow-auto bg-[#121212] p-8">
         <div className="min-w-[1000px]">
           {/* Header Row */}
-          <div className="grid grid-cols-[200px_repeat(5,1fr)] gap-4 mb-4">
-            <div className="font-mono text-gray-500 text-xs uppercase tracking-widest self-end pb-2">Personas</div>
+          <div className="grid grid-cols-[250px_repeat(5,1fr)] gap-4 mb-4">
+            <div className="font-mono text-gray-500 text-xs uppercase tracking-widest self-end pb-2">STRATEGY HOOKS</div>
             {FRAMEWORKS.map(fw => (
               <div key={fw} className="bg-[#1a1a1a] p-3 rounded border border-gray-800 flex flex-col gap-2 group hover:border-[#2D9CDB] transition-colors">
                 <span className="font-mono text-xs text-[#2D9CDB] truncate" title={fw}>{fw}</span>
@@ -346,15 +540,26 @@ export default function App() {
           </div>
 
           {/* Body Rows */}
-          {personas.map(persona => (
-            <div key={persona.id} className="grid grid-cols-[200px_repeat(5,1fr)] gap-4 mb-4 items-center">
-              <div className="bg-[#1a1a1a] p-4 rounded h-[140px] flex flex-col justify-center border-l-2 border-gray-700">
-                <span className="font-bold text-sm text-gray-200">{persona.label}</span>
-                <span className="text-xs text-gray-500 mt-1 line-clamp-2">{persona.data.hook}</span>
+          {uniqueRowIds.map(rowId => {
+            const rowNode = project.nodes.find(n => n.id === rowId);
+            if (!rowNode) return null;
+
+            // Get parent context for display
+            const parentNode = project.nodes.find(n => n.id === rowNode.parentId);
+
+            return (
+            <div key={rowId} className="grid grid-cols-[250px_repeat(5,1fr)] gap-4 mb-4 items-center">
+              {/* Row Header Card */}
+              <div className="bg-[#1a1a1a] p-4 rounded h-[140px] flex flex-col justify-center border-l-2 border-gray-700 relative overflow-hidden">
+                {rowNode.type === NodeType.HOOK && (
+                    <div className="absolute top-0 right-0 bg-purple-900 text-purple-200 text-[9px] px-1.5 py-0.5">HOOK</div>
+                )}
+                <span className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">{parentNode?.label || "Strategy"}</span>
+                <span className="font-bold text-sm text-gray-200 leading-tight">{rowNode.label}</span>
               </div>
 
               {FRAMEWORKS.map(fw => {
-                const variant = project.variants.find(v => v.personaId === persona.id && v.framework === fw);
+                const variant = project.variants.find(v => v.personaId === rowId && v.framework === fw);
                 if (!variant) return <div key={fw}></div>;
 
                 const isGenerating = variant.status === 'GENERATING';
@@ -421,7 +626,7 @@ export default function App() {
                 );
               })}
             </div>
-          ))}
+          )})}
         </div>
       </div>
     );
@@ -490,9 +695,17 @@ export default function App() {
             {/* --- BILLBOARD RENDERING --- */}
             {isBillboard && (
                 <div className="absolute inset-0 bg-black flex flex-col justify-center items-center p-4 text-center border-4 border-gray-800">
-                     <p className="font-typewriter text-[#00FF94] text-sm mb-2">>> ATTENTION {active.formula.qualifier.toUpperCase()}</p>
-                     <h2 className="font-sans font-black text-white text-3xl uppercase italic tracking-tighter">{active.headline}</h2>
-                     <p className="text-white/70 text-xs mt-2">{active.bodyText}</p>
+                     {/* Background Image for Billboard */}
+                     {active.thumbnailUrl && (
+                         <div className="absolute inset-0 opacity-50">
+                             <img src={active.thumbnailUrl} className="w-full h-full object-cover" />
+                         </div>
+                     )}
+                     <div className="z-10 text-center">
+                        <p className="font-typewriter text-[#00FF94] text-sm mb-2 drop-shadow-md">>> ATTENTION {active.formula.qualifier.toUpperCase()}</p>
+                        <h2 className="font-sans font-black text-white text-3xl uppercase italic tracking-tighter drop-shadow-lg">{active.headline}</h2>
+                        <p className="text-white/90 text-xs mt-2 drop-shadow-md">{active.bodyText}</p>
+                     </div>
                 </div>
             )}
 
@@ -611,8 +824,8 @@ export default function App() {
                       <ImageIcon size={14} />
                       <span className="text-xs font-bold font-mono">LAYER 1: VISUAL</span>
                    </div>
-                   <Button variant="ghost" className="h-6 text-[10px] px-2">
-                      <RefreshCw size={10} className="mr-1"/> REGENERATE
+                   <Button onClick={handleRegenerateImageOnly} variant="ghost" className="h-6 text-[10px] px-2" disabled={isGenerating}>
+                      <RefreshCw size={10} className={`mr-1 ${isGenerating ? 'animate-spin' : ''}`}/> REGENERATE
                    </Button>
                 </div>
 
@@ -690,6 +903,8 @@ export default function App() {
   // --- Main Render ---
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden">
+      {showSetup && <SetupModal onSave={handleSetupSave} />}
+      
       {/* Top Bar */}
       <header className="h-[60px] bg-[#151515] border-b border-gray-800 flex items-center justify-between px-6 shrink-0 z-50">
         <div className="flex items-center gap-4">

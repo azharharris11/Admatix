@@ -10,6 +10,12 @@ export enum NodeType {
     AWARENESS = 'AWARENESS',
     HOOK = 'HOOK'
 }
+
+export enum AwarenessLevel {
+    UNAWARE = 'Unaware (Cold)',
+    PROBLEM_AWARE = 'Problem Aware (Warm)',
+    SOLUTION_AWARE = 'Solution Aware (Hot)'
+}
   
 export interface StrategyNode {
     id: string;
@@ -40,7 +46,7 @@ export interface AdFormula {
   
 export interface AdVariant {
     id: string;
-    personaId: string;
+    personaId: string; // Maps to the Strategy Node ID (can be Hook, Persona, etc.)
     framework: AdFramework;
     status: 'EMPTY' | 'GENERATING' | 'DONE';
     thumbnailUrl?: string;
